@@ -5,15 +5,20 @@
   import Timeline from '$lib/components/Timeline.svelte';
   import SimulationPanel from '$lib/components/SimulationPanel.svelte';
   import AlertOverlay from '$lib/components/AlertOverlay.svelte';
-  import { startPolling, stopPolling, appMode, isLoading, fetchError, lastUpdated } from '$lib/stores/events';
+  import { startPolling, stopPolling, appMode, isLoading, fetchError, lastUpdated, clearEvents } from '$lib/stores/events';
+  import { resetRegion } from '$lib/stores/region';
   import { narrator } from '$lib/utils/narrator';
 
-  let mapComponent: Map | undefined = $state(undefined);
+  // ============================================================
+  // STATE
+  // ============================================================
   let timelinePanelOpen = $state(true);
   let narratorEnabled = $state(true);
   let bootSequence = $state(true);
   let bootLines: string[] = $state([]);
   let narratorGreeted = $state(false);
+  let mapComponent: any = $state(undefined);
+  let bootStarted = $state(false);
 
   const BOOT_MESSAGES = [
     'SEISMON v1.0 — Seismic Anomaly Monitor',
@@ -28,9 +33,54 @@
     'Starting live monitoring...',
   ];
 
+  // ============================================================
+  // LIFECYCLE
+  // ============================================================
+
   onMount(() => {
     narrator.init();
+    window.speechSynthesis.onvoiceschanged = () => {};
+  });
 
+  onDestroy(() => {
+    stopPolling();
+    narrator.stop();
+  });
+
+  // ============================================================
+  // HANDLERS
+  // ============================================================
+  function toggleNarrator() {
+    narratorEnabled = !narratorEnabled;
+    narrator.setEnabled(narratorEnabled);
+  }
+
+  function handleFirstInteraction() {
+    if (!narratorGreeted && narratorEnabled) {
+      narratorGreeted = true;
+      setTimeout(() => {
+        narrator.speak(
+          'SEISMON online. Live seismic monitoring active. Awaiting anomaly detection.',
+          'info'
+        );
+      }, 300);
+    }
+  }
+
+  function handleBackToLive() {
+    clearEvents();
+    appMode.set('LIVE');
+    startPolling();
+    resetRegion();
+  }
+
+  function handleInitialize() {
+    bootStarted = true;
+    narratorGreeted = true;
+
+    narrator.speak('Initializing SEISMON', 'info');
+
+    // Start boot sequence
     let i = 0;
     const interval = setInterval(() => {
       if (i < BOOT_MESSAGES.length) {
@@ -42,36 +92,13 @@
           bootSequence = false;
           startPolling(60000);
           setTimeout(() => {
-            narrator.speak(
-              'SEISMON online. Live seismic monitoring active. Awaiting anomaly detection.',
-              'info'
-            );
-          }, 500);
+            narrator.speak('SEISMON online. Live Seismic monitoring active. Awaiting Anomaly detected', 'info');
+          }, 800);
         }, 800);
       }
     }, 180);
-  });
-
-  onDestroy(() => {
-    stopPolling();
-    narrator.stop();
-  });
-
-  function toggleNarrator() {
-    narratorEnabled = !narratorEnabled;
-    narrator.setEnabled(narratorEnabled);
   }
 
-  function handleFirstInteraction() {
-  if (!narratorGreeted && narratorEnabled) {
-    narratorGreeted = true;
-    narrator.speak(
-      'SEISMON online. Live seismic monitoring active. Awaiting anomaly detection.',
-      'info'
-      );
-    }
-  }
-  
 </script>
 
 <svelte:head>
@@ -94,17 +121,31 @@
         <div class="boot-subtitle">SEISMIC ANOMALY MONITOR</div>
       </div>
 
-      <div class="boot-log">
-        {#each bootLines as line, i}
-          <div class="boot-line" class:last={i === bootLines.length - 1}>
-            <span class="boot-prompt">{'>'}</span>
-            {line}
+      {#if !bootStarted}
+        <div class="boot-init">
+          <div class="boot-init-text">SYSTEM READY — AWAITING OPERATOR</div>
+          <button class="init-btn" onclick={handleInitialize}>
+            <span class="blink">▶</span> INITIALIZE SYSTEM
+          </button>
+          <div class="boot-disclaimer">
+            Educational use only. Real seismic data from USGS.
           </div>
-        {/each}
-        {#if bootLines.length < BOOT_MESSAGES.length}
-          <div class="boot-cursor blink">_</div>
-        {/if}
-      </div>
+        </div>
+
+      {:else}
+        <div class="boot-log">
+          {#each bootLines as line, i}
+            <div class="boot-line" class:last={i === bootLines.length - 1}>
+              <span class="boot-prompt">{'>'}</span>
+              {line}
+            </div>
+          {/each}
+          {#if bootLines.length < BOOT_MESSAGES.length}
+            <div class="boot-cursor blink">_</div>
+          {/if}
+        </div>
+      {/if}
+
     </div>
   </div>
 
@@ -118,19 +159,23 @@
         <span class="topbar-logo">SEISMON</span>
         <span class="topbar-version">v1.0</span>
         <span class="topbar-divider">|</span>
-        <span
-          class="mode-indicator"
-          class:live={$appMode === 'LIVE'}
-          class:historical={$appMode === 'HISTORICAL'}
-          class:simulation={$appMode === 'SIMULATION'}
-        >
-          {#if $appMode === 'LIVE'}
-            <span class="blink">●</span>
-          {:else}
-            ◈
-          {/if}
-          {$appMode} MODE
-        </span>
+
+        <!-- MODE INDICATOR -->
+        {#if $appMode === 'LIVE'}
+          <span class="mode-indicator live">
+            <span class="blink">●</span> LIVE MODE
+          </span>
+        {:else}
+          <button
+            class="mode-indicator-btn"
+            class:historical={$appMode === 'HISTORICAL'}
+            class:simulation={$appMode === 'SIMULATION'}
+            onclick={handleBackToLive}
+            title="Click to return to LIVE mode"
+          >
+            ← BACK TO LIVE &nbsp;|&nbsp; {$appMode} MODE
+          </button>
+        {/if}
 
         {#if $isLoading}
           <span class="loading-indicator blink">◉ FETCHING...</span>
@@ -152,7 +197,7 @@
         <button
           class="topbar-btn"
           class:active={narratorEnabled}
-          onclick={() => {handleFirstInteraction(); toggleNarrator();}}
+          onclick={() => { handleFirstInteraction(); toggleNarrator(); }}
           title="Toggle narrator"
         >
           {narratorEnabled ? '🔊 AUDIO ON' : '🔇 AUDIO OFF'}
@@ -162,7 +207,8 @@
         <button
           class="topbar-btn"
           class:active={timelinePanelOpen}
-          onclick={() => {handleFirstInteraction(); timelinePanelOpen = !timelinePanelOpen; }}
+          onclick={() => { handleFirstInteraction(); timelinePanelOpen = !timelinePanelOpen; 
+            setTimeout(() => mapComponent?.invalidate(), 50);}}
         >
           ◈ TIMELINE
         </button>
@@ -179,14 +225,12 @@
       <div class="map-wrapper">
         <Map bind:this={mapComponent} />
 
-        <!-- Map overlay — coordinates display -->
         <div class="map-overlay-br">
           <div class="coord-display">
             SEISMON GLOBAL MONITOR
           </div>
         </div>
 
-        <!-- Map overlay — grid lines decoration -->
         <div class="map-grid-overlay" aria-hidden="true"></div>
       </div>
 
@@ -346,6 +390,7 @@
     color: #1a2a3a;
   }
 
+  /* MODE INDICATORS */
   .mode-indicator {
     font-size: 10px;
     letter-spacing: 1.5px;
@@ -354,9 +399,39 @@
     gap: 4px;
   }
 
-  .mode-indicator.live { color: #00ff41; }
-  .mode-indicator.historical { color: #4af; }
-  .mode-indicator.simulation { color: #ff6600; }
+  .mode-indicator.live {
+    color: #00ff41;
+  }
+
+  .mode-indicator-btn {
+    background: transparent;
+    border: 1px solid;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    padding: 3px 8px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+    animation: pulse-border 2s ease-in-out infinite;
+  }
+
+  .mode-indicator-btn.historical {
+    color: #4af;
+    border-color: #4af4;
+  }
+
+  .mode-indicator-btn.historical:hover {
+    background: #4af1;
+  }
+
+  .mode-indicator-btn.simulation {
+    color: #ff6600;
+    border-color: #ff660066;
+  }
+
+  .mode-indicator-btn.simulation:hover {
+    background: #ff66001a;
+  }
 
   .loading-indicator {
     font-size: 9px;
@@ -450,6 +525,11 @@
     to { opacity: 1; transform: translateX(0); }
   }
 
+  @keyframes pulse-border {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
   .blink {
     animation: blink 1s step-end infinite;
   }
@@ -458,4 +538,46 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0; }
   }
+
+  .boot-init {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid #1a2a3a;
+  padding: 32px;
+  background: #070b14;
+}
+
+.boot-init-text {
+  color: #334455;
+  font-size: 10px;
+  letter-spacing: 3px;
+}
+
+.init-btn {
+  background: transparent;
+  border: 1px solid #00aaff66;
+  color: #00aaff;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  padding: 12px 32px;
+  cursor: pointer;
+  letter-spacing: 3px;
+  transition: all 0.3s;
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+.init-btn:hover {
+  background: #00aaff11;
+  border-color: #00aaff;
+  box-shadow: 0 0 24px #00aaff44;
+}
+
+.boot-disclaimer {
+  color: #223344;
+  font-size: 9px;
+  letter-spacing: 1px;
+ }
+
 </style>
