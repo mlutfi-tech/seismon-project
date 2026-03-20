@@ -7,8 +7,13 @@
   // ============================================================
   // STATE
   // ============================================================
-  let selectedPreset = PRESET_LOCATIONS[0];
-  let showHistory = false;
+  let showHistory = $state(false);
+
+  // Derived dari simConfig store — supaya sinkron
+  // Tidak pakai selectedPresetName lokal lagi
+  function isPresetActive(presetName: string): boolean {
+    return $simConfig.label === presetName;
+  }
 
   // ============================================================
   // ACTIONS
@@ -19,14 +24,12 @@
     const result = await runSimulation($simConfig);
 
     if (result) {
-      // Trigger narasi audio
       const script = NARRATOR_SCRIPTS.SIMULATION(
         $simConfig.label,
         $simConfig.magnitude
       );
       narrator.speak(script, 'warning');
 
-      // Kalau critical, trigger narasi lebih dramatis
       if (result.threat_level === 'CRITICAL') {
         setTimeout(() => {
           const critScript = NARRATOR_SCRIPTS.CRITICAL(
@@ -41,8 +44,9 @@
   }
 
   function handlePresetSelect(preset: typeof PRESET_LOCATIONS[0]) {
-    selectedPreset = preset;
     applyPreset(preset);
+    // simConfig.label akan di-set oleh applyPreset
+    // isPresetActive() akan otomatis update karena bergantung pada $simConfig
   }
 
   function handleClearHistory() {
@@ -50,13 +54,25 @@
       clearSimHistory();
     }
   }
+
+  function handleClose() {
+    simPanelOpen.set(false);
+    if ($appMode === 'SIMULATION') {
+      appMode.set('LIVE');
+      narrator.stop();
+    }
+  }
+
+  function handleOpen() {
+    simPanelOpen.set(true);
+  }
 </script>
 
 <!-- TOGGLE BUTTON -->
 <button
   class="sim-toggle"
   class:active={$simPanelOpen}
-  on:click={() => simPanelOpen.update((v) => !v)}
+  onclick={() => $simPanelOpen ? handleClose() : handleOpen()}
 >
   {#if $simPanelOpen}
     ✕ CLOSE SIM
@@ -86,8 +102,8 @@
         {#each PRESET_LOCATIONS.filter(p => p.name !== 'Custom Location') as preset}
           <button
             class="preset-btn"
-            class:active={selectedPreset.name === preset.name}
-            on:click={() => handlePresetSelect(preset)}
+            class:active={isPresetActive(preset.name)}
+            onclick={() => handlePresetSelect(preset)}
           >
             <span class="preset-name">{preset.name}</span>
             <span class="preset-meta">M{preset.magnitude} / {preset.depth}km</span>
@@ -102,11 +118,10 @@
     <div class="section">
       <div class="section-title">⊞ PARAMETERS</div>
 
-      <!-- Label -->
       <div class="field">
-        <label for='sim-label'>LABEL</label>
+        <label for="sim-label">LABEL</label>
         <input
-          id = 'sim-label'
+          id="sim-label"
           type="text"
           bind:value={$simConfig.label}
           placeholder="SIMULATION"
@@ -114,11 +129,12 @@
         />
       </div>
 
-      <!-- Magnitude -->
       <div class="field">
-        <label for='sim-mag'>MAGNITUDE — <span class="val-highlight">{$simConfig.magnitude.toFixed(1)}</span></label>
+        <label for="sim-mag">
+          MAGNITUDE — <span class="val-highlight">{$simConfig.magnitude.toFixed(1)}</span>
+        </label>
         <input
-          id = 'sim-mag'
+          id="sim-mag"
           type="range"
           min="1"
           max="9"
@@ -132,11 +148,12 @@
         </div>
       </div>
 
-      <!-- Depth -->
       <div class="field">
-        <label for='sim-depth'>DEPTH (km) — <span class="val-highlight">{$simConfig.depth}km</span></label>
+        <label for="sim-depth">
+          DEPTH (km) — <span class="val-highlight">{$simConfig.depth}km</span>
+        </label>
         <input
-          id = 'sim-depth'
+          id="sim-depth"
           type="range"
           min="0"
           max="100"
@@ -150,11 +167,10 @@
         </div>
       </div>
 
-      <!-- Latitude -->
       <div class="field">
-        <label for='sim-lat'>LATITUDE</label>
+        <label for="sim-lat">LATITUDE</label>
         <input
-          id = 'sim-lat'
+          id="sim-lat"
           type="number"
           bind:value={$simConfig.latitude}
           min="-90"
@@ -163,11 +179,10 @@
         />
       </div>
 
-      <!-- Longitude -->
       <div class="field">
-        <label for='sim-lng'>LONGITUDE</label>
+        <label for="sim-lng">LONGITUDE</label>
         <input
-          id = 'sim-lng'
+          id="sim-lng"
           type="number"
           bind:value={$simConfig.longitude}
           min="-180"
@@ -176,11 +191,10 @@
         />
       </div>
 
-      <!-- Yield (optional) -->
       <div class="field">
-        <label for='sim-yield'>YIELD (kt) — OPTIONAL</label>
+        <label for="sim-yield">YIELD (kt) — OPTIONAL</label>
         <input
-          id = 'sim-yield'
+          id="sim-yield"
           type="number"
           bind:value={$simConfig.yield_kt}
           min="0"
@@ -190,7 +204,7 @@
       </div>
     </div>
 
-    <!-- PREVIEW SCORE -->
+    <!-- PREVIEW -->
     <div class="preview-block">
       <div class="preview-title">CLASSIFICATION PREVIEW</div>
       <div class="preview-params">
@@ -208,12 +222,12 @@
 
     <!-- ACTION BUTTONS -->
     <div class="action-row">
-      <button class="reset-btn" on:click={resetSimConfig}>
+      <button class="reset-btn" onclick={resetSimConfig}>
         ↺ RESET
       </button>
       <button
         class="run-btn"
-        on:click={handleRunSimulation}
+        onclick={handleRunSimulation}
         disabled={$isSimulating}
       >
         {#if $isSimulating}
@@ -246,14 +260,15 @@
         {#if $activeSimulation.estimated_yield_kt}
           <div class="result-row">
             <span class="result-key">EST. YIELD</span>
-            <span style="color: #ff6600;">~{$activeSimulation.estimated_yield_kt.toFixed(2)} kt</span>
+            <span style="color: #ff6600;">
+              ~{$activeSimulation.estimated_yield_kt.toFixed(2)} kt
+            </span>
           </div>
         {/if}
         <div class="result-label" style="color: {color};">
           {getThreatLabel($activeSimulation.threat_level)}
         </div>
 
-        <!-- Reasons -->
         {#if $activeSimulation.reasons?.length}
           <div class="reasons">
             {#each $activeSimulation.reasons as reason}
@@ -267,9 +282,12 @@
     <!-- HISTORY -->
     {#if $simHistory.length > 0}
       <div class="section">
-        <button class="section-title history-toggle" on:click={() => showHistory = !showHistory}>
+        <button
+          class="history-toggle"
+          onclick={() => showHistory = !showHistory}
+        >
           ◈ HISTORY ({$simHistory.length})
-          <span style="float:right;">{showHistory ? '▲' : '▼'}</span>
+          <span>{showHistory ? '▲' : '▼'}</span>
         </button>
 
         {#if showHistory}
@@ -286,7 +304,7 @@
             {/each}
           </div>
 
-          <button class="clear-btn" on:click={handleClearHistory}>
+          <button class="clear-btn" onclick={handleClearHistory}>
             ✕ CLEAR HISTORY
           </button>
         {/if}
@@ -319,27 +337,6 @@
     border-color: #ff6600;
     box-shadow: 0 0 12px #ff660044;
   }
-
-  .history-toggle {
-    background: transparent;
-    border: none;
-    color: #445566;
-    font-family: 'Courier New', monospace;
-    font-size: 9px;
-    letter-spacing: 1.5px;
-    cursor: pointer;
-    width: 100%;
-    text-align: left;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0;
-    margin-bottom: 2px;
-  }
-
- .history-toggle:hover {
-    color: #667788;
- }
 
   .sim-panel {
     position: fixed;
@@ -423,22 +420,30 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    width: 100%;
   }
 
-  .preset-btn:hover,
-  .preset-btn.active {
+  .preset-btn:hover {
     border-color: #ff660066;
     color: #ff6600;
     background: #ff66001a;
   }
 
-  .preset-name {
-    font-size: 9px;
+  .preset-btn.active {
+    border-color: #ff6600;
+    color: #ff6600;
+    background: #ff66001a;
+    box-shadow: 0 0 8px #ff660033;
   }
 
+  .preset-name { font-size: 9px; }
   .preset-meta {
     font-size: 8px;
     color: #445566;
+  }
+
+  .preset-btn.active .preset-meta {
+    color: #ff660088;
   }
 
   .field {
@@ -453,9 +458,7 @@
     letter-spacing: 1px;
   }
 
-  .val-highlight {
-    color: #ff6600;
-  }
+  .val-highlight { color: #ff6600; }
 
   input[type='text'],
   input[type='number'] {
@@ -595,9 +598,7 @@
     font-size: 10px;
   }
 
-  .result-key {
-    color: #445566;
-  }
+  .result-key { color: #445566; }
 
   .result-label {
     font-size: 9px;
@@ -661,6 +662,25 @@
     background: #ff00001a;
     border-color: #ff0000;
   }
+
+  .history-toggle {
+    background: transparent;
+    border: none;
+    color: #445566;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0;
+    margin-bottom: 2px;
+  }
+
+  .history-toggle:hover { color: #667788; }
 
   .blink-orange {
     animation: blink 1s step-end infinite;
