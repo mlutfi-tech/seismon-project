@@ -4,9 +4,6 @@
   import { getThreatColor, getThreatLabel } from '$lib/utils/classifier';
   import { narrator, NARRATOR_SCRIPTS } from '$lib/utils/narrator';
 
-  // ============================================================
-  // STATE — Svelte 5 runes
-  // ============================================================
   let visible = $state(false);
   let currentAlert: any = $state(null);
   let alertQueue: any[] = $state([]);
@@ -15,15 +12,14 @@
 
   const alertedIds = new Set<string>();
 
-  // ============================================================
-  // LIFECYCLE
-  // ============================================================
   let unsubCritical: (() => void) | null = null;
   let unsubAnomaly: (() => void) | null = null;
   let unsubMode: (() => void) | null = null;
 
   onMount(() => {
     narrator.init();
+
+    window.addEventListener('seismon:narrator-finished', handleNarratorFinished);
 
     unsubCritical = criticalEvents.subscribe((evts) => {
       for (const evt of evts) {
@@ -47,7 +43,6 @@
       }
     });
 
-    // Stop narrator saat mode berubah ke LIVE dari mode lain
     unsubMode = appMode.subscribe((mode) => {
       if (mode === 'LIVE') {
         narrator.stop();
@@ -56,17 +51,22 @@
   });
 
   onDestroy(() => {
+    window.removeEventListener('seismon:narrator-finished', handleNarratorFinished);
     unsubCritical?.();
     unsubAnomaly?.();
     unsubMode?.();
     narrator.stop();
   });
 
-  // ============================================================
-  // QUEUE PROCESSOR
-  // ============================================================
+  function handleNarratorFinished() {
+    if (!processing && alertQueue.length > 0) {
+      processQueue();
+    }
+  }
+
   function processQueue() {
     if (processing || !alertQueue.length) return;
+    if (narrator.isSpeaking()) return;
 
     processing = true;
     currentAlert = alertQueue[0];

@@ -75,28 +75,34 @@
   }
 
   function handleInitialize() {
-    bootStarted = true;
-    narratorGreeted = true;
+  bootStarted = true;
+  narratorGreeted = true;
 
-    narrator.speak('Initializing SEISMON', 'info');
+  setTimeout(() => {
+    narrator.speak('Initializing SEISMON.', 'greeting');
 
-    // Start boot sequence
-    let i = 0;
-    const interval = setInterval(() => {
-      if (i < BOOT_MESSAGES.length) {
-        bootLines = [...bootLines, BOOT_MESSAGES[i]];
-        i++;
-      } else {
-        clearInterval(interval);
-        setTimeout(() => {
-          bootSequence = false;
-          startPolling(60000);
+    setTimeout(() => {
+      let i = 0;
+      const interval = setInterval(() => {
+        if (i < BOOT_MESSAGES.length) {
+          bootLines = [...bootLines, BOOT_MESSAGES[i]];
+          i++;
+        } else {
+          clearInterval(interval);
           setTimeout(() => {
-            narrator.speak('SEISMON online. Live Seismic monitoring active. Awaiting Anomaly detected', 'info');
-          }, 800);
-        }, 800);
-      }
-    }, 180);
+            bootSequence = false;
+            startPolling(60000);
+            setTimeout(() => {
+              narrator.speak(
+                'SEISMON online. Live seismic monitoring active. Awaiting anomaly detection.',
+                'greeting'
+                );
+              }, 800);
+            }, 800);
+          }
+        }, 180);
+      }, 2000); 
+    }, 300);
   }
 
 </script>
