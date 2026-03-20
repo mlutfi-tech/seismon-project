@@ -26,9 +26,18 @@
     map = L.map(mapContainer, {
       center: [20, 0],
       zoom: 2,
+      minZoom: 2,
+      maxZoom: 18,
       zoomControl: false,
       attributionControl: false,
+      worldCopyJump: true,
+      maxBoundsViscosity: 1.0,
     });
+
+    map.setMaxBounds([
+      [-90, -Infinity],
+      [90, Infinity]
+    ]);
 
     L.tileLayer(
       'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
@@ -39,6 +48,10 @@
     ).addTo(map);
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 100);
 
     unsubEvents = events.subscribe((evts) => {
       updateMarkers(evts);
@@ -259,6 +272,12 @@
   export function flyTo(lat: number, lng: number, zoom = 6) {
     if (map) map.flyTo([lat, lng], zoom, { duration: 1.5 });
   }
+  export function invalidate() {
+  if (map) {
+    setTimeout(() => map.invalidateSize(), 50);
+    }
+  }
+
 </script>
 
 <div bind:this={mapContainer} class="w-full h-full" id="seismon-map"></div>
