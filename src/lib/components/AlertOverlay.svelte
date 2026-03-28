@@ -4,14 +4,23 @@
   import { getThreatColor, getThreatLabel } from '$lib/utils/classifier';
   import { narrator, NARRATOR_SCRIPTS } from '$lib/utils/narrator';
 
+  // ============================================================
+  // STATE
+  // ============================================================
   let visible = $state(false);
   let currentAlert: any = $state(null);
   let alertQueue: any[] = $state([]);
   let processing = $state(false);
   let scanlineActive = $state(false);
 
-  const alertedIds = new Set<string>();
+  // Tidak pakai Set permanent — pakai Map dengan timestamp
+  // supaya alert bisa muncul lagi setelah interval tertentu
+  const alertedIds = new Map<string, number>();
+  const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 menit cooldown per event
 
+  // ============================================================
+  // LIFECYCLE
+  // ============================================================
   let unsubCritical: (() => void) | null = null;
   let unsubAnomaly: (() => void) | null = null;
   let unsubMode: (() => void) | null = null;
@@ -19,12 +28,12 @@
   onMount(() => {
     narrator.init();
 
-    window.addEventListener('seismon:narrator-finished', handleNarratorFinished);
+    window.addEventListener('seismon:narrator-finished', handleNarratorFinishedCombined);
 
     unsubCritical = criticalEvents.subscribe((evts) => {
       for (const evt of evts) {
-        if (!alertedIds.has(evt.usgs_id)) {
-          alertedIds.add(evt.usgs_id);
+        if (canAlert(evt.usgs_id)) {
+          markAlerted(evt.usgs_id);
           alertQueue = [...alertQueue, { ...evt, alertType: 'CRITICAL' }];
           processQueue();
         }
@@ -33,8 +42,8 @@
 
     unsubAnomaly = anomalyEvents.subscribe((evts) => {
       for (const evt of evts) {
-        if (!alertedIds.has(evt.usgs_id) && evt.threat_level !== 'NATURAL') {
-          alertedIds.add(evt.usgs_id);
+        if (canAlert(evt.usgs_id) && evt.threat_level !== 'NATURAL') {
+          markAlerted(evt.usgs_id);
           if (evt.threat_level !== 'CRITICAL') {
             alertQueue = [...alertQueue, { ...evt, alertType: evt.threat_level }];
             processQueue();
@@ -47,17 +56,36 @@
       if (mode === 'LIVE') {
         narrator.stop();
       }
+      // Reset alertedIds saat mode berubah
+      // supaya alert bisa muncul lagi di mode baru
+      alertedIds.clear();
     });
   });
 
   onDestroy(() => {
-    window.removeEventListener('seismon:narrator-finished', handleNarratorFinished);
+    window.removeEventListener('seismon:narrator-finished', handleNarratorFinishedCombined);
     unsubCritical?.();
     unsubAnomaly?.();
     unsubMode?.();
     narrator.stop();
   });
 
+  // ============================================================
+  // ALERT ID MANAGEMENT
+  // ============================================================
+  function canAlert(id: string): boolean {
+    const lastAlerted = alertedIds.get(id);
+    if (!lastAlerted) return true;
+    return Date.now() - lastAlerted > ALERT_COOLDOWN_MS;
+  }
+
+  function markAlerted(id: string) {
+    alertedIds.set(id, Date.now());
+  }
+
+  // ============================================================
+  // QUEUE PROCESSOR
+  // ============================================================
   function handleNarratorFinished() {
     if (!processing && alertQueue.length > 0) {
       processQueue();
@@ -76,11 +104,9 @@
 
     triggerNarration(currentAlert);
 
-    if (currentAlert.alertType !== 'CRITICAL') {
-      setTimeout(() => {
-        dismissAlert();
-      }, 8000);
-    }
+    // Auto dismiss hanya setelah narrator selesai
+    // untuk non-critical — handled di handleNarratorFinished
+    // untuk critical — user harus acknowledge manual
   }
 
   function triggerNarration(alert: any) {
@@ -104,14 +130,34 @@
   }
 
   function dismissAlert() {
+    // Stop narrator saat alert di-dismiss
+    narrator.stop();
+
     visible = false;
     currentAlert = null;
     scanlineActive = false;
 
     setTimeout(() => {
       processing = false;
+      // Proses alert berikutnya kalau ada
       processQueue();
     }, 600);
+  }
+
+  // Auto dismiss non-critical setelah narrator selesai
+  function handleNarratorFinishedForDismiss() {
+    if (visible && currentAlert && currentAlert.alertType !== 'CRITICAL') {
+      // Beri jeda 2 detik setelah narrator selesai baru dismiss
+      setTimeout(() => {
+        dismissAlert();
+      }, 2000);
+    }
+  }
+
+  // Override handleNarratorFinished untuk handle dismiss juga
+  function handleNarratorFinishedCombined() {
+    handleNarratorFinishedForDismiss();
+    handleNarratorFinished();
   }
 </script>
 
